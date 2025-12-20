@@ -1,14 +1,13 @@
 use crate::data::TokenType;
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub line: u16,
 }
 
-#[derive(Debug)]
-pub struct ParserState<'a> {
-    pub tokens: &'a Vec<Token>,
-    pub iterator: usize
+
+pub struct Tokens {
+    pub tokens: Vec<Token>,
 }

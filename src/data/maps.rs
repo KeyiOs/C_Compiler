@@ -1,7 +1,37 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::data::types::{ SingleOperator, DoubleOperator, TripleOperator };
+use crate::data::{Keyword, types::{ DoubleOperator, SingleOperator, TripleOperator }};
+
+
+pub static KEYWORD_MAP: LazyLock<HashMap<&'static str, Keyword>> = LazyLock::new(|| {
+    HashMap::from([
+        ("bool", Keyword::Bool),
+        ("break", Keyword::Break),
+        ("case", Keyword::Case),
+        ("char", Keyword::Char),
+        ("continue", Keyword::Continue),
+        ("default", Keyword::Default),
+        ("double", Keyword::Double),
+        ("else", Keyword::Else),
+        ("enum", Keyword::Enum),
+        ("false", Keyword::False),
+        ("float", Keyword::Float),
+        ("for", Keyword::For),
+        ("if", Keyword::If),
+        ("int", Keyword::Int),
+        ("long", Keyword::Long),
+        ("return", Keyword::Return),
+        ("short", Keyword::Short),
+        ("signed", Keyword::Signed),
+        ("struct", Keyword::Struct),
+        ("switch", Keyword::Switch),
+        ("true", Keyword::True),
+        ("unsigned", Keyword::Unsigned),
+        ("void", Keyword::Void),
+        ("while", Keyword::While),
+    ])
+});
 
 
 pub static SINGLE_OPERATOR_MAP: LazyLock<HashMap<char, SingleOperator>> = LazyLock::new(|| {

@@ -1,8 +1,8 @@
 use crate::Token;
-use crate::data::maps::{ SINGLE_OPERATOR_MAP, DOUBLE_OPERATOR_MAP, TRIPLE_OPERATOR_MAP };
-use crate::data::{ Keyword, TokenType };
+use crate::data::maps::{ DOUBLE_OPERATOR_MAP, KEYWORD_MAP, SINGLE_OPERATOR_MAP, TRIPLE_OPERATOR_MAP };
+use crate::data::TokenType;
 use std::iter::Peekable;
-use std::str::{Chars, FromStr};
+use std::str::Chars;
 
 pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error>> {
     /**/ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */ /**/
@@ -30,7 +30,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                 buffer.push(chars.next().unwrap());
             }
 
-            if Keyword::from_str(buffer.as_str()).is_ok() {
+            if KEYWORD_MAP.contains_key(buffer.as_str()) {
                 token.push(Token::new(TokenType::Keyword(buffer.clone()), line));
             } else {
                 token.push(Token::new(TokenType::Identifier(buffer.clone()), line));
@@ -326,6 +326,10 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
         start_of_line = false;
     }
 
+    token.push(Token::new(TokenType::EOF, line));
+
+    token.reverse();
+    
     Ok(token)
 }
 

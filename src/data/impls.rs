@@ -1,7 +1,8 @@
 use crate::Token;
-use crate::data::{ Keyword, TokenType };
+use crate::data::types::Type;
+use crate::data::{ TokenType, Tokens };
+use core::panic;
 use std::str::FromStr;
-use phf::phf_map;
 
 impl Token {
     pub fn new(token_type: TokenType, line: u16) -> Self {
@@ -17,43 +18,89 @@ impl TokenType {
             | TokenType::Operator(s)
             | TokenType::Literal(s)
             | TokenType::Identifier(s) => s.as_str(),
+            | TokenType::EOF => "EOF",
         }
     }
 }
 
 
-impl FromStr for Keyword {
+impl Tokens {
+    pub fn next(&mut self) -> Token {
+        self.tokens.pop().unwrap()
+    }
+
+    pub fn peek(&self) -> &Token {
+        self.tokens.last().unwrap()
+    }
+
+    pub fn operator_match(&mut self, other: &str) -> bool {
+        let var = self.next();
+
+        if var.token_type.eq(&TokenType::Operator(other.to_string())) {
+            true
+        } else {
+            panic!("Expected '{}' on line {} but found '{}'", other, var.line, var.token_type.value());
+        }
+    }
+
+    pub fn operator_peek(&self, other: &str) -> bool {
+        let var = self.peek();
+
+        if var.token_type.eq(&TokenType::Operator(other.to_string())) {
+            true
+        } else {
+            panic!("Expected '{}' on line {} but found '{}'", other, var.line, var.token_type.value());
+        }
+    }
+
+    pub fn type_match(&mut self, other: &TokenType) -> bool {
+        let var = self.peek();
+
+        if var.token_type.eq(other) {
+            self.next();
+            true
+        } else {
+            false
+        }
+    }
+}
+
+
+impl FromStr for Type {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
-            "bool" => Keyword::Bool,
-            "break" => Keyword::Break,
-            "case" => Keyword::Case,
-            "char" => Keyword::Char,
-            "continue" => Keyword::Continue,
-            "default" => Keyword::Default,
-            "do" => Keyword::Do,
-            "double" => Keyword::Double,
-            "else" => Keyword::Else,
-            "enum" => Keyword::Enum,
-            "false" => Keyword::False,
-            "float" => Keyword::Float,
-            "for" => Keyword::For,
-            "if" => Keyword::If,
-            "int" => Keyword::Int,
-            "long" => Keyword::Long,
-            "return" => Keyword::Return,
-            "short" => Keyword::Short,
-            "signed" => Keyword::Signed,
-            "struct" => Keyword::Struct,
-            "switch" => Keyword::Switch,
-            "true" => Keyword::True,
-            "unsigned" => Keyword::Unsigned,
-            "void" => Keyword::Void,
-            "while" => Keyword::While,
-        };
-
-        KEYWORDS.get(s).copied().ok_or(())
+        match s {
+            "void" => Ok(Type::Void),
+            "bool" => Ok(Type::Bool),
+            "char" => Ok(Type::Char),
+            "int" => Ok(Type::Int),
+            "float" => Ok(Type::Float),
+            "double" => Ok(Type::Double),
+            "long" => Ok(Type::Long),
+            "short" => Ok(Type::Short),
+            "unsigned" => Ok(Type::Unsigned(Box::new(Type::Int))),
+            "signed" => Ok(Type::Signed(Box::new(Type::Int))),
+            _ => Err(()),
+        }
     }
+}
+
+
+impl OperatorPrecedence for String {
+    fn precedence(&self) -> u8 {
+        match self.as_str() {
+            "++" | "--" => 5,
+            "*" | "/" | "%" => 4,
+            "+" | "-" => 3,
+            ">" | "<" | ">=" | "<=" | "==" | "!=" => 2,
+            "+=" | "-=" | "*=" | "/=" | "%=" | "=" => 1,
+            _ => 0,
+        }
+    }
+}
+
+
+pub trait OperatorPrecedence {
+    fn precedence(&self) -> u8;
 }

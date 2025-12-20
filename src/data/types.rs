@@ -1,19 +1,80 @@
-#[derive(Debug, PartialEq, Eq)]
+use serde::Serialize;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TokenType {
     Keyword(String),
     Operator(String),
     Literal(String),
     Identifier(String),
+    EOF,
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum AstNode {
+    FnDeclaration {
+        return_type: Type,
+        identifier: String,
+        parameters: Vec<(Type, String)>,
+    },
+    
+    FnDefinition {
+        return_type: Type,
+        identifier: String,
+        parameters: Vec<(Type, String)>,
+        body: Vec<AstNode>,
+    },
+
+    VarDeclaration {
+        var_type: Type,
+        identifier: String,
+        value: Option<Box<AstNode>>,
+    },
+
     BinaryOperation {
         left: Box<AstNode>,
         operator: String,
         right: Box<AstNode>,
     },
+
+    IfStatement {
+        condition: Box<AstNode>,
+        body: Vec<AstNode>,
+        else_branch: Option<Box<AstNode>>,
+    },
+
+    ElseStatement {
+        condition: Option<Box<AstNode>>,
+        body: Vec<AstNode>,
+        else_branch: Option<Box<AstNode>>,
+    },
+
+    WhileStatement {
+        condition: Box<AstNode>,
+        body: Vec<AstNode>,
+    },
+
+    Switch {
+        identifier: String,
+        cases: Vec<AstNode>,
+    },
+
+    Case {
+        identifier: String,
+        body: Vec<AstNode>,
+    },
+
+    Enum {
+        name: String,
+        variants: Vec<String>,
+    },
+
+    Return {
+        expression: Option<Box<AstNode>>,
+    },
+
+    Break,
+    Continue,
 
     Value(String),
 }
@@ -21,31 +82,46 @@ pub enum AstNode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Keyword {
-    Bool,
-    Break,
-    Case,
-    Char,
-    Continue,
-    Default,
-    Do,
-    Double,
-    Else,
-    Enum,
-    False,
-    Float,
-    For,
-    If,
-    Int,
-    Long,
-    Return,
-    Short,
-    Signed,
-    Struct,
-    Switch,
-    True,
-    Unsigned,
+    Bool,       // ✅
+    Break,      // ✅
+    Case,       // ✅
+    Char,       // ✅
+    Continue,   // ✅
+    Default,    // ✅
+    Double,     // ✅
+    Else,       // ✅
+    Enum,       // ✅
+    False,      // ✅
+    Float,      // ✅
+    For,        // Function
+    If,         // ✅
+    Int,        // ✅
+    Long,       // ✅
+    Return,     // ✅
+    Short,      // ✅
+    Signed,     // ✅
+    Struct,     // Function
+    Switch,     // ✅
+    True,       // ✅
+    Unsigned,   // ✅
+    Void,       // ✅
+    While,      // ✅
+}
+
+
+#[derive(Debug, PartialEq, Eq, Serialize, Clone)]
+pub enum Type {
     Void,
-    While,
+    Bool,
+    Char,
+    Int,
+    Float,
+    Double,
+    Short,
+    Long,
+    LongLong,
+    Unsigned(Box<Type>),
+    Signed(Box<Type>),
 }
 
 

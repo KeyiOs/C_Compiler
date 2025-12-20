@@ -1,0 +1,5 @@
+bool x = true;
+
+signed long long test (int x, long y, unsigned short z) {
+
+}
