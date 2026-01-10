@@ -37,7 +37,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
             }
             
             buffer.clear();
-        } else if character.is_ascii_digit() || (character == '.' && chars.peek().map_or(false, |c| c.is_ascii_digit())) {
+        } else if character.is_ascii_digit() || ((character == '.' || character == '-') && chars.peek().map_or(false, |c| c.is_ascii_digit())) {
             match (character, chars.peek()) {
                 ('0', Some(&next_char)) if is_octal(next_char) => {
                     let mut oct_digits = String::new();
@@ -53,7 +53,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
 
                     let oct_value = u32::from_str_radix(&oct_digits, 8).map_err(|_| format!("Invalid octal number '{}' on line {}", oct_digits, line))?;
 
-                    token.push(Token::new(TokenType::Literal(oct_value.to_string()), line));
+                    token.push(Token::new(TokenType::Literal(oct_value.to_string(), "number".to_string()), line));
                     start_of_line = false;
 
                     continue;
@@ -76,7 +76,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
 
                     let hex_value = u32::from_str_radix(&hex_digits, 16).map_err(|_| format!("Invalid hex number '{}' on line {}", hex_digits, line))?;
 
-                    token.push(Token::new(TokenType::Literal(hex_value.to_string()), line));
+                    token.push(Token::new(TokenType::Literal(hex_value.to_string(), "number".to_string()), line));
                     start_of_line = false;
 
                     continue;
@@ -152,7 +152,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                 }
             }
 
-            token.push(Token::new(TokenType::Literal(buffer.clone()), line));
+            token.push(Token::new(TokenType::Literal(buffer.clone(), "number".to_string()), line));
             has_decimal = false;
             
             buffer.clear();
@@ -180,9 +180,9 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
 
                     let char_literal = process_escape_sequence(&mut chars, line, &filename)?;
 
-                    token.push(Token::new(TokenType::Literal(char_literal), line));
+                    token.push(Token::new(TokenType::Literal(char_literal, "char".to_string()), line));
                 } else {    
-                    token.push(Token::new(TokenType::Literal(character.to_string()), line));
+                    token.push(Token::new(TokenType::Literal(character.to_string(), "char".to_string()), line));
                 }
 
                 if chars.next() != Some('\'') {
@@ -203,27 +203,30 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                 while let Some(next_char) = chars.next() {
                     match next_char {
                         '"' => {
-                            let mut lookahead = chars.clone();
+                            let mut temp_iter = chars.clone();
+                            let mut skip_count = 0;
+                            let mut found_quote = false;
 
-                            while let Some(&c) = lookahead.peek() {
+                            while let Some(&c) = temp_iter.peek() {
                                 if !c.is_whitespace() {
+                                    if c == '"' {
+                                        found_quote = true;
+                                    }
                                     break;
                                 }
-
-                                lookahead.next();
+                                skip_count += 1;
+                                temp_iter.next();
                             }
 
-                            if lookahead.peek() != Some(&'"') {
-                                token.push(Token::new(TokenType::Literal(string_lit), line));
+                            if !found_quote {
+                                token.push(Token::new(TokenType::Literal(string_lit, "string".to_string()), line));
                                 ok = true;
-
                                 break;
                             }
 
-                            for _ in 0..(chars.clone().count() - lookahead.count()) {
+                            for _ in 0..skip_count {
                                 chars.next();
                             }
-                            
                             chars.next();
 
                             continue;

@@ -4,7 +4,7 @@ use serde::Serialize;
 pub enum TokenType {
     Keyword(String),
     Operator(String),
-    Literal(String),
+    Literal(String, String),
     Identifier(String),
     EOF,
 }
@@ -12,6 +12,33 @@ pub enum TokenType {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum AstNode {
+    ArrayAccess {
+        array: Box<AstNode>,
+        index: Box<AstNode>,
+    },
+
+    BinaryOperation {
+        left: Box<AstNode>,
+        operator: String,
+        right: Box<AstNode>,
+    },
+
+    Case {
+        identifier: String,
+        body: Vec<AstNode>,
+    },
+
+    ElseStatement {
+        condition: Option<Box<AstNode>>,
+        body: Vec<AstNode>,
+        else_branch: Option<Box<AstNode>>,
+    },
+
+    Enum {
+        identifier: String,
+        variants: Vec<String>,
+    },
+
     FnDeclaration {
         return_type: Type,
         identifier: String,
@@ -25,16 +52,16 @@ pub enum AstNode {
         body: Vec<AstNode>,
     },
 
-    VarDeclaration {
-        var_type: Type,
-        identifier: String,
-        value: Option<Box<AstNode>>,
+    ForStatement {
+        declarations: Option<Vec<AstNode>>,
+        condition: Option<Box<AstNode>>,
+        increments: Option<Vec<AstNode>>,
+        body: Vec<AstNode>,
     },
 
-    BinaryOperation {
-        left: Box<AstNode>,
-        operator: String,
-        right: Box<AstNode>,
+    FunctionCall {
+        identifier: String,
+        arguments: Vec<AstNode>,
     },
 
     IfStatement {
@@ -43,15 +70,24 @@ pub enum AstNode {
         else_branch: Option<Box<AstNode>>,
     },
 
-    ElseStatement {
-        condition: Option<Box<AstNode>>,
-        body: Vec<AstNode>,
-        else_branch: Option<Box<AstNode>>,
+    Printf {
+        format_string: String,
+        arguments: Vec<AstNode>,
     },
 
-    WhileStatement {
-        condition: Box<AstNode>,
-        body: Vec<AstNode>,
+    Return {
+        expression: Option<Box<AstNode>>,
+    },
+
+    Struct {
+        identifier: String,
+        members: Vec<AstNode>,
+        variables: Vec<String>,
+    },
+
+    StructDeclaration {
+        identifier: String,
+        struct_name: String,
     },
 
     Switch {
@@ -59,53 +95,59 @@ pub enum AstNode {
         cases: Vec<AstNode>,
     },
 
-    Case {
+    UnaryOperation {
+        operand: Box<AstNode>,
+        operator: String,
+    },
+
+    VarDeclaration {
+        var_type: Type,
         identifier: String,
+        value: Option<Box<AstNode>>,
+    },
+
+    WhileStatement {
+        condition: Box<AstNode>,
         body: Vec<AstNode>,
-    },
-
-    Enum {
-        name: String,
-        variants: Vec<String>,
-    },
-
-    Return {
-        expression: Option<Box<AstNode>>,
     },
 
     Break,
     Continue,
 
-    Value(String),
+    Literal {
+        value: String,
+        data_type: String,
+    },
 }
 
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Keyword {
-    Bool,       // ✅
-    Break,      // ✅
-    Case,       // ✅
-    Char,       // ✅
-    Continue,   // ✅
-    Default,    // ✅
-    Double,     // ✅
-    Else,       // ✅
-    Enum,       // ✅
-    False,      // ✅
-    Float,      // ✅
-    For,        // Function
-    If,         // ✅
-    Int,        // ✅
-    Long,       // ✅
-    Return,     // ✅
-    Short,      // ✅
-    Signed,     // ✅
-    Struct,     // Function
-    Switch,     // ✅
-    True,       // ✅
-    Unsigned,   // ✅
-    Void,       // ✅
-    While,      // ✅
+    Bool,
+    Break,
+    Case,
+    Char,
+    Continue,
+    Default,
+    Double,
+    Else,
+    Enum,
+    False,
+    Float,
+    For,
+    If,
+    Int,
+    Long,
+    Printf,
+    Return,
+    Short,
+    Signed,
+    Struct,
+    Switch,
+    True,
+    Unsigned,
+    Void,
+    While,
 }
 
 
@@ -122,6 +164,9 @@ pub enum Type {
     LongLong,
     Unsigned(Box<Type>),
     Signed(Box<Type>),
+    Struct(String),
+    Pointer(Box<Type>),
+    Array(Box<Type>, Option<String>),
 }
 
 
@@ -163,7 +208,6 @@ pub enum DoubleOperator {
     DoubleMinus,
     DoublePipe,
     DoublePlus,
-    Pointer,
     DoubleGreaterThan,
     DoubleLessThan,
     LessThanEqual,

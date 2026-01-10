@@ -5,6 +5,7 @@ use core::panic;
 use std::str::FromStr;
 
 impl Token {
+    #[inline]
     pub fn new(token_type: TokenType, line: u16) -> Self {
         Self { token_type, line }
     }
@@ -12,11 +13,12 @@ impl Token {
 
 
 impl TokenType {
+    #[inline]
     pub fn value(&self) -> &str {
         match self {
             TokenType::Keyword(s)
             | TokenType::Operator(s)
-            | TokenType::Literal(s)
+            | TokenType::Literal(s, _)
             | TokenType::Identifier(s) => s.as_str(),
             | TokenType::EOF => "EOF",
         }
@@ -25,10 +27,12 @@ impl TokenType {
 
 
 impl Tokens {
+    #[inline]
     pub fn next(&mut self) -> Token {
         self.tokens.pop().unwrap()
     }
 
+    #[inline]
     pub fn peek(&self) -> &Token {
         self.tokens.last().unwrap()
     }
@@ -94,7 +98,7 @@ impl OperatorPrecedence for String {
             "*" | "/" | "%" => 4,
             "+" | "-" => 3,
             ">" | "<" | ">=" | "<=" | "==" | "!=" => 2,
-            "+=" | "-=" | "*=" | "/=" | "%=" | "=" => 1,
+            "+=" | "-=" | "*=" | "/=" | "%=" | "=" | "&&" | "||"=> 1,
             _ => 0,
         }
     }

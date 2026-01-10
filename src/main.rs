@@ -1,10 +1,7 @@
 mod data;
 mod logic;
 
-use std::path::Path;
-use std::fs;
 use std::process::Command;
-use std::io::Write;
 use data::Token;
 use logic::lexer_start;
 use logic::parser_start;
@@ -14,9 +11,6 @@ use crate::data::TokenType;
 use crate::data::Tokens;
 
 const INPUT_CODE: &str = "./examples/test.txt";
-const DEBUG: bool = false;
-const MAX_TO_PRINT: usize = 20;
-const PRINT_TYPE: u8 = 0; // 0=All, 1=Keyword, 2=Operator, 3=Literal, 4=Identifier
 
 fn main() {
     let preproces_source = match preproces_source(INPUT_CODE) {
@@ -38,11 +32,6 @@ fn main() {
     let ast = parser_start(&mut tokens, 0);
 
     /* - DEGUB - */
-    if DEBUG {
-        preproces_out(preproces_source);
-        token_out(tokens.tokens);
-    }
-    
     let json = serde_json::to_string_pretty(&ast).unwrap();
     println!("{}\n\n\n", json);
 
@@ -66,65 +55,6 @@ fn preproces_source(file_path: &str) -> Result<String, Box<dyn std::error::Error
 /* * * * * * * */
 /*  - DEGUB -  */
 /* * * * * * * */
-fn preproces_out(preproces_source: String) {
-    let output_path = "output/prep_out.c";
-    let output_dir = Path::new(output_path).parent().unwrap();
-
-    if let Err(e) = fs::create_dir_all(output_dir) {
-        eprintln!("Failed to create directory {:?}: {}", output_dir, e);
-        return;
-    }
-
-    if let Err(e) = fs::write(output_path, preproces_source) {
-        eprintln!("Failed to write preprocessed output: {}", e);
-    }
-}
-
-
-fn token_out(tokens: Vec<Token>) {
-    let output_path = "output/token_out.txt";
-    let output_dir = Path::new(output_path).parent().unwrap();
-
-    if let Err(e) = fs::create_dir_all(output_dir) {
-        eprintln!("Failed to create directory {:?}: {}", output_dir, e);
-        return;
-    }
-
-    let mut file = match fs::File::create(output_path) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("Failed to create output file {}: {}", output_path, e);
-            return;
-        }
-    };
-
-    let mut count = 0;
-    for token in tokens.iter().rev() {
-        let (type_id, text) = match &token.token_type {
-            TokenType::Keyword(s) => (1, s),
-            TokenType::Operator(s) => (2, s),
-            TokenType::Literal(s) => (3, s),
-            TokenType::Identifier(s) => (4, s),
-            TokenType::EOF => (5, &String::from("EOF")),
-        };
-
-        if PRINT_TYPE != 0 && PRINT_TYPE != type_id {
-            continue;
-        }
-
-        if let Err(e) = writeln!(file, "{}", text) {
-            eprintln!("Failed to write to file: {}", e);
-            break;
-        }
-
-        count += 1;
-        if MAX_TO_PRINT != 0 && count >= MAX_TO_PRINT {
-            break;
-        }
-    }
-}
-
-
 const CYAN: &str = "\x1b[1;36m";
 const YELLOW: &str = "\x1b[1;33m";
 const GREEN: &str = "\x1b[1;32m";
@@ -139,8 +69,9 @@ pub fn print_ast(nodes: &[AstNode]) {
     }
 
     fn print_body(body: &[AstNode], new_prefix: &str) {
+        let len = body.len();
         for (i, stmt) in body.iter().enumerate() {
-            let is_last = i == body.len() - 1;
+            let is_last = i == len - 1;
             inner(stmt, &new_prefix, is_last, None);
         }
     }
@@ -153,6 +84,12 @@ pub fn print_ast(nodes: &[AstNode]) {
         let side_label = side.map_or("".to_string(), |s| format!(" {}{}", MAGENTA, s));
 
         match node {
+            AstNode::ArrayAccess { array, index } => {
+                println!("{}ArrayAccess{}{}", YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                inner(array, &new_prefix, false, Some("array"));
+                inner(index, &new_prefix, true, Some("index"));
+            }
             AstNode::IfStatement { condition, body, else_branch } => {
                 let new_prefix = print_name("IfStatement", prefix, last);
 
@@ -166,6 +103,28 @@ pub fn print_ast(nodes: &[AstNode]) {
                 if let Some(else_node) = else_branch {
                     inner(else_node, &new_prefix, true, None);
                 }
+            }
+            AstNode::ForStatement { declarations, condition, increments, body } => {
+                println!("{}ForStatement{}", CYAN, RESET);
+
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                if let Some(decls) = declarations {
+                    for decl in decls {
+                        inner(decl, &new_prefix, false, None);
+                    }
+                }
+
+                if let Some(cond) = condition {
+                    inner(cond, &new_prefix, false, None);
+                }
+
+                if let Some(incrs) = increments {
+                    for incr in incrs {
+                        inner(incr, &new_prefix, body.is_empty(), None);
+                    }
+                }
+
+                print_body(body, &new_prefix);
             }
             AstNode::FnDeclaration { return_type, identifier, parameters } => {
                 println!("{}FnDeclaration ({}{}{}: {}{:?}{}){}{}", CYAN, RED, identifier, CYAN, RED, return_type, CYAN, side_label, RESET);
@@ -181,15 +140,17 @@ pub fn print_ast(nodes: &[AstNode]) {
                 for (i, (param_type, param_name)) in parameters.iter().enumerate() {
                     let is_last = i == parameters.len() - 1;
                     println!("{}{}{}Parameter ({}{}{}: {}{:?}{}){}", new_prefix, if is_last { "└─ " } else { "├─ " }, GREEN, RED, param_name, GREEN, RED, param_type, GREEN, RESET);
-                    
-                    if is_last {
-                        let body_prefix = format!("{}{}", new_prefix, "    ");
-                        print_body(body, &body_prefix);
-                    }
+                }
+
+                if !parameters.is_empty() {
+                    let body_prefix = format!("{}    ", new_prefix);
+                    print_body(body, &body_prefix);
+                } else {
+                    print_body(body, &new_prefix);
                 }
             }
             AstNode::VarDeclaration { var_type, identifier, value } => {
-                println!("{}VarDeclaration ({}{}{}: {}{}{}){}{}", CYAN, RED, identifier, CYAN, RED, format!("{:?}", var_type), CYAN, side_label, RESET);
+                println!("{}VarDeclaration ({}{:?}{}: {}{}{}){}{}", CYAN, RED, identifier, CYAN, RED, format!("{:?}", var_type), CYAN, side_label, RESET);
                 if let Some(val) = value {
                     let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
                     inner(val, &new_prefix, true, None);
@@ -229,8 +190,25 @@ pub fn print_ast(nodes: &[AstNode]) {
                 let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
                 print_body(body, &new_prefix);
             }
-            AstNode::Enum { name, variants } => {
-                println!("{}Enum({}{}{}){}", CYAN, RED, name, CYAN, RESET);
+            AstNode::Struct { identifier, members, variables } => {
+                println!("{}Struct({}{}{}){}", CYAN, RED, identifier, CYAN, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                
+                for (i, member) in members.iter().enumerate() {
+                    let is_last = i == members.len() - 1 && variables.is_empty();
+                    inner(member, &new_prefix, is_last, None);
+                }
+
+                for (i, var) in variables.iter().enumerate() {
+                    let is_last = i == variables.len() - 1;
+                    println!("{}{}{}Variable({}{}{}){}", new_prefix, if is_last { "└─ " } else { "├─ " }, GREEN, RED, var, GREEN, RESET);
+                }
+            }
+            AstNode::StructDeclaration { struct_name, identifier } => {
+                println!("{}StructDeclaration ({}{}{}: {}{}{}){}{}", CYAN, RED, identifier, CYAN, RED, struct_name, CYAN, side_label, RESET);
+            }
+            AstNode::Enum { identifier, variants } => {
+                println!("{}Enum({}{}{}){}", CYAN, RED, identifier, CYAN, RESET);
                 let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
                 for (i, variant) in variants.iter().enumerate() {
                     let is_last = i == variants.len() - 1;
@@ -243,6 +221,27 @@ pub fn print_ast(nodes: &[AstNode]) {
                 inner(left, &new_prefix, false, Some("L"));
                 inner(right, &new_prefix, true, Some("R"));
             }
+            AstNode::UnaryOperation { operand, operator } => {
+                println!("{}UnaryOperation ({}{}{}){}{}", YELLOW, RED, operator, YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                inner(operand, &new_prefix, true, None);
+            }
+            AstNode::FunctionCall { identifier, arguments } => {
+                println!("{}FunctionCall ({}{}{}){}{}", YELLOW, RED, identifier, YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                for (i, arg) in arguments.iter().enumerate() {
+                    let is_last = i == arguments.len() - 1;
+                    inner(arg, &new_prefix, is_last, None);
+                }
+            }
+            AstNode::Printf { format_string, arguments } => {
+                println!("{}Printf ({}\"{}\"{}){}{}", YELLOW, RED, format_string, YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                for (i, arg) in arguments.iter().enumerate() {
+                    let is_last = i == arguments.len() - 1;
+                    inner(arg, &new_prefix, is_last, None);
+                }
+            }
             AstNode::Return { expression } => {
                 println!("{}Return{}", CYAN, RESET);
                 if let Some(expr) = expression {
@@ -250,8 +249,8 @@ pub fn print_ast(nodes: &[AstNode]) {
                     inner(expr, &new_prefix, true, None);
                 }
             }
-            AstNode::Value(v) => {
-                println!("{}Value({}{}{}){}{}", GREEN, RED, v, GREEN, side_label, RESET);
+            AstNode::Literal { value, data_type } => {
+                println!("{}Literal({}{}{}: {}{}{}){}{}", GREEN, RED, value, GREEN, RED, data_type, GREEN, side_label, RESET);
             }
             AstNode::Break => {
                 println!("{}Break{}", GREEN, RESET);
@@ -265,4 +264,6 @@ pub fn print_ast(nodes: &[AstNode]) {
     for (i, node) in nodes.iter().enumerate() {
         inner(node, "", i == nodes.len() - 1, None);
     }
+
+    println!("{}", RESET);
 }
