@@ -1,10 +1,11 @@
 use crate::Token;
 use crate::data::maps::{ DOUBLE_OPERATOR_MAP, KEYWORD_MAP, SINGLE_OPERATOR_MAP, TRIPLE_OPERATOR_MAP };
 use crate::data::TokenType;
+use crate::error::{LexerError, LexerResult};
 use std::iter::Peekable;
 use std::str::Chars;
 
-pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error>> {
+pub fn lexer_start(source: &str) -> LexerResult<Vec<Token>> {
     /**/ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */ /**/
     /**/ /*                    Lexer State Variables                    */ /**/
     /**/ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */ /**/
@@ -14,7 +15,6 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
     /**/ let mut start_of_line: bool = true;                               /**/
     /**/ let mut has_decimal: bool = false;                                /**/
     /**/ let mut line: u16 = 1;                                            /**/
-    /**/ let mut filename: String = String::new();                         /**/
     /**/ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */ /**/
     
 
@@ -51,7 +51,8 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                         oct_digits.push(c);
                     }
 
-                    let oct_value = u32::from_str_radix(&oct_digits, 8).map_err(|_| format!("Invalid octal number '{}' on line {}", oct_digits, line))?;
+                    let oct_value = u32::from_str_radix(&oct_digits, 8)
+                        .map_err(|_| LexerError::InvalidOctalNumber { value: oct_digits.clone(), line })?;
 
                     token.push(Token::new(TokenType::Literal(oct_value.to_string(), "number".to_string()), line));
                     start_of_line = false;
@@ -71,10 +72,11 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                     }
 
                     if hex_digits.is_empty() {
-                        return Err(format!("{}, {}: Invalid hex number", filename, line).into());
+                        return Err(LexerError::EmptyHexNumber { line });
                     }
 
-                    let hex_value = u32::from_str_radix(&hex_digits, 16).map_err(|_| format!("Invalid hex number '{}' on line {}", hex_digits, line))?;
+                    let hex_value = u32::from_str_radix(&hex_digits, 16)
+                        .map_err(|_| LexerError::InvalidHexNumber { value: hex_digits.clone(), line })?;
 
                     token.push(Token::new(TokenType::Literal(hex_value.to_string(), "number".to_string()), line));
                     start_of_line = false;
@@ -95,7 +97,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                     buffer.push(chars.next().unwrap());
                 } else if next_char == '.' {
                     if has_decimal {
-                        return Err(format!("{}, {}: Multiple decimal points in number", filename, line).into());
+                        return Err(LexerError::MultipleDecimalPoints { line });
                     }
 
                     has_decimal = true;
@@ -117,7 +119,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                     }
 
                     if buffer_length == buffer.len() {
-                        return Err(format!("{}, {}: Invalid exponent in number", filename, line).into());
+                        return Err(LexerError::InvalidExponent { line });
                     }
                 } else if next_char.is_ascii_alphabetic() {
                     let mut suffix = String::new();
@@ -138,12 +140,12 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
 
                     if let Some(&next) = chars.peek() {
                         if !next.is_whitespace() && !SINGLE_OPERATOR_MAP.contains_key(&next) {
-                            return Err(format!("{}, {}: Invalid number suffix", filename, line).into());
+                            return Err(LexerError::InvalidNumberSuffix { line });
                         }
                     }
 
                     if !matches!(suffix.to_ascii_lowercase().as_str(), "u" | "l" | "f" | "ul" | "lu" | "ll" | "ull" | "llu" | "lf") {
-                        return Err(format!("{}, {}: Invalid number suffix", filename, line).into());
+                        return Err(LexerError::InvalidNumberSuffix { line });
                     }
 
                     buffer.push_str(&suffix);
@@ -168,17 +170,17 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
         } else if SINGLE_OPERATOR_MAP.contains_key(&character) {
             if character == '\'' {
                 let Some(character) = chars.next() else {
-                    return Err(format!("{}, {}: Unterminated character literal", filename, line).into());
+                    return Err(LexerError::UnterminatedCharLiteral { line });
                 };
 
                 if character == '\'' {
-                    return Err(format!("{}, {}: Empty character literal", filename, line).into());
+                    return Err(LexerError::EmptyCharLiteral { line });
                 } else if character == '\\' {
                     if chars.peek().is_none() {
-                        return Err(format!("{}, {}: Unterminated character literal", filename, line).into());
+                        return Err(LexerError::UnterminatedCharLiteral { line });
                     };
 
-                    let char_literal = process_escape_sequence(&mut chars, line, &filename)?;
+                    let char_literal = process_escape_sequence(&mut chars, line)?;
 
                     token.push(Token::new(TokenType::Literal(char_literal, "char".to_string()), line));
                 } else {    
@@ -188,13 +190,13 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                 if chars.next() != Some('\'') {
                     while let Some(next_char) = chars.next() {
                         if next_char == '\n' {
-                            return Err(format!("{}, {}: Unterminated character literal", filename, line).into());
+                            return Err(LexerError::UnterminatedCharLiteral { line });
                         } else if next_char == '\'' {
-                            return Err(format!("{}, {}: Character literal too long", filename, line).into());
+                            return Err(LexerError::CharLiteralTooLong { line });
                         }
                     }
 
-                    return Err(format!("{}, {}: Unterminated character literal", filename, line).into());
+                    return Err(LexerError::UnterminatedCharLiteral { line });
                 }
             } else if character == '\"' {
                 let mut string_lit = String::new();
@@ -232,7 +234,7 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                             continue;
                         } '\\' => {
                             let Some(&escape_char) = chars.peek() else {
-                                return Err(format!("{}, {}: Unterminated string literal", filename, line).into());
+                                return Err(LexerError::UnterminatedStringLiteral { line });
                             };
 
                             if escape_char == '\n' || escape_char == '\r' {
@@ -244,17 +246,17 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                                 continue;
                             }
 
-                            process_escape_sequence(&mut chars, line, &filename)?;
+                            process_escape_sequence(&mut chars, line)?;
                         }
 
-                        '\n' => return Err(format!("{}, {}: Unterminated string literal", filename, line).into()),
+                        '\n' => return Err(LexerError::UnterminatedStringLiteral { line }),
 
                         _ => string_lit.push(next_char),
                     }
                 }
 
                 if !ok {
-                    return Err(format!("{}, {}: Unterminated string literal", filename, line).into());
+                    return Err(LexerError::UnterminatedStringLiteral { line });
                 }
             } else if let Some(second_char) = chars.peek().copied() {
                 let mut lookahead = chars.clone();
@@ -297,17 +299,15 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
                         line = pp_line_num.parse::<u16>().unwrap_or(0);
                     }
                 } else if c == '"' {
-                    let mut pp_filename = String::new();
+                    let mut _pp_filename = String::new();
 
                     while let Some(fc) = chars.next() {
                         if fc == '"' {
                             break;
                         }
 
-                        pp_filename.push(fc);
+                        _pp_filename.push(fc);
                     }
-
-                    filename = pp_filename.split('/').last().unwrap().to_string();
                 } else if c == '\n' || c == '\r' {
                     break;
                 }
@@ -323,13 +323,14 @@ pub fn lexer_start(source: &str) -> Result<Vec<Token>, Box<dyn std::error::Error
 
             continue;
         } else {
-            return Err(format!("{}, {}: Unknown character: {}", filename, line, character).into());
+            return Err(LexerError::UnknownCharacter { ch: character, line });
         }
 
         start_of_line = false;
     }
 
-    token.push(Token::new(TokenType::EOF, line));
+    let eof_line = if line > 1 && start_of_line { line - 1 } else { line };
+    token.push(Token::new(TokenType::EOF, eof_line));
 
     token.reverse();
     
@@ -342,9 +343,9 @@ fn is_octal(c: char) -> bool {
 }
 
 
-fn process_escape_sequence(chars: &mut Peekable<Chars<'_>>, line: u16, filename: &String) -> Result<String, Box<dyn std::error::Error>> {
+fn process_escape_sequence(chars: &mut Peekable<Chars<'_>>, line: u16) -> LexerResult<String> {
     let Some(escape_char) = chars.next() else {
-        return Err(format!("{}, {}: Error 001", filename, line).into());
+        return Err(LexerError::UnterminatedCharLiteral { line });
     };
 
     let mut string_lit = String::new();
@@ -386,10 +387,11 @@ fn process_escape_sequence(chars: &mut Peekable<Chars<'_>>, line: u16, filename:
             }
 
             if hex_digits.is_empty() {
-                return Err(format!("{}, {}: Expected hex digits after \\x", filename, line).into());
+                return Err(LexerError::ExpectedHexDigitsAfterX { line });
             }
 
-            let value = u8::from_str_radix(&hex_digits, 16).map_err(|_| format!("Invalid hex escape: \\x{} on line {}", hex_digits, line))?;
+            let value = u8::from_str_radix(&hex_digits, 16)
+                .map_err(|_| LexerError::InvalidHexEscape { value: hex_digits.clone(), line })?;
             
             string_lit.push(value as char);
             Ok(string_lit)
@@ -400,27 +402,28 @@ fn process_escape_sequence(chars: &mut Peekable<Chars<'_>>, line: u16, filename:
 
             for _ in 0..4 {
                 let Some(&c) = chars.peek() else {
-                    return Err(format!("{}, {}: Invalid escape sequence. Requires 4 hex digits, but found {}", filename, line, unicode_digits.len()).into());
+                    return Err(LexerError::UnicodeEscapeIncomplete { found: unicode_digits.len(), line });
                 };
 
                 if c.is_ascii_hexdigit() {
                     unicode_digits.push(c);
                     chars.next();
                 } else if c == '\'' {
-                    return Err(format!("{}, {}: Invalid escape sequence. Requires 4 hex digits, but found {}", filename, line, unicode_digits.len()).into());
+                    return Err(LexerError::UnicodeEscapeIncomplete { found: unicode_digits.len(), line });
                 } else {
-                    return Err(format!("{}, {}: Invalid character '{}' in unicode escape", filename, line, c).into());
+                    return Err(LexerError::InvalidCharInUnicodeEscape { ch: c, line });
                 }
             }
 
             if unicode_digits.is_empty() {
-                return Err(format!("{}, {}: Empty unicode escape", filename, line).into());
+                return Err(LexerError::EmptyUnicodeEscape { line });
             }
 
-            let codepoint = u32::from_str_radix(&unicode_digits, 16).map_err(|_| format!("Invalid unicode escape: \\u{{{}}} on line {}", unicode_digits, line))?;
+            let codepoint = u32::from_str_radix(&unicode_digits, 16)
+                .map_err(|_| LexerError::InvalidUnicodeEscape { value: unicode_digits.clone(), line })?;
 
             let Some(ch) = char::from_u32(codepoint) else {
-                return Err(format!("{}, {}: Invalid unicode codepoint: \\u{{{}}}", filename, line, unicode_digits).into());
+                return Err(LexerError::InvalidUnicodeCodepoint { value: unicode_digits, line });
             };
 
             string_lit.push(ch);
@@ -429,13 +432,14 @@ fn process_escape_sequence(chars: &mut Peekable<Chars<'_>>, line: u16, filename:
 
         '0'..='7' => {
             let oct_digits = format!("{}{}", escape_char, process_octal(chars));
-            let oct_value = u8::from_str_radix(&oct_digits, 8).map_err(|_| format!("Invalid octal escape: \\{} on line {}", oct_digits, line))?;
+            let oct_value = u8::from_str_radix(&oct_digits, 8)
+                .map_err(|_| LexerError::InvalidOctalEscape { value: oct_digits.clone(), line })?;
             
             string_lit.push(oct_value as char);
             Ok(string_lit)
         }
         
-        _ => return Err(format!("{}, {}: Invalid escape sequence: \\{}", filename, line, escape_char).into()),
+        _ => Err(LexerError::InvalidEscapeSequence { sequence: escape_char.to_string(), line }),
     }
 }
 

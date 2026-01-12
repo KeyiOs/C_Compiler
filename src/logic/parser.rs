@@ -1,9 +1,9 @@
-use core::panic;
 use std::str::FromStr;
 
 use crate::{TokenType, data::{AstNode, OperatorPrecedence, Token, Tokens, types::Type}};
+use crate::error::{ParseError, ParseResult};
 
-pub fn parser_start(input: &mut Tokens, depth: usize) -> Vec<AstNode> {
+pub fn parser_start(input: &mut Tokens, depth: usize) -> ParseResult<Vec<AstNode>> {
     let mut ast = Vec::new();
 
     loop {
@@ -19,59 +19,46 @@ pub fn parser_start(input: &mut Tokens, depth: usize) -> Vec<AstNode> {
                 match Type::from_str(k.as_str()) {
                     Ok(_) => {
                         input.tokens.push(tmp);
-                        ast.extend(process_declaration(input, depth));
+                        ast.extend(process_declaration(input, depth)?);
                     },
                     Err(_) => {
                         match k.as_str() {
-                            "if" => ast.push(process_if(input, depth, false)),
-                            "struct" => {
-                                if input.tokens.len() >= 2 {
-                                    let peek1 = &input.tokens[input.tokens.len() - 2].token_type;
-                                    if let TokenType::Identifier(_) = peek1 {
-                                        let peek2 = &input.tokens[input.tokens.len() - 3].token_type;
-                                        if peek2 == &TokenType::Operator("{".to_string()) {
-                                            ast.push(process_struct(input));
-                                        } else {
-                                            input.tokens.push(tmp);
-                                            ast.extend(process_declaration(input, depth));
-                                        }
-                                    } else {
-                                        ast.push(process_struct(input));
-                                    }
-                                } else {
-                                    ast.push(process_struct(input));
-                                }
-                            }
-                            "for" => ast.push(process_for(input, depth)),
-                            "while" => ast.push(process_while(input, depth)),
-                            "switch" => ast.push(process_switch(input, depth)),
-                            "enum" => ast.push(process_enum(input)),
-                            "printf" => ast.push(process_printf(input)),
+                            "if" => ast.push(process_if(input, depth, false)?),
+                            "struct" => ast.push(process_struct(input)?),
+                            "for" => ast.push(process_for(input, depth)?),
+                            "while" => ast.push(process_while(input, depth)?),
+                            "switch" => ast.push(process_switch(input, depth)?),
+                            "enum" => ast.push(process_enum(input)?),
+                            "printf" => ast.push(process_printf(input)?),
                             "break" => {
                                 if depth == 0 {
-                                    panic!("'break' used outside of loop on line {}", input.peek().line);
+                                    return Err(ParseError::BreakOutsideLoop(input.peek().line));
                                 }
 
                                 ast.push(AstNode::Break);
-                                input.operator_match(";");
+                                input.operator_match(";")?;
                                 break;
                             }
                             "continue" => {
                                 if depth == 0 {
-                                    panic!("'continue' used outside of loop on line {}", input.peek().line);
+                                    return Err(ParseError::ContinueOutsideLoop(input.peek().line));
                                 }
                                 
                                 ast.push(AstNode::Continue);
-                                input.operator_match(";");
+                                input.operator_match(";")?;
                             }
                             "return" => {
+                                if depth == 0 {
+                                    return Err(ParseError::ReturnOutsideFunction(input.peek().line));
+                                }
+                                
                                 if input.peek().token_type.eq(&TokenType::Operator(";".to_string())) {
                                     ast.push(AstNode::Return { expression: None });
                                     input.next();
                                 } else {
-                                    let expr = process_expression(input, 0, false);
+                                    let expr = process_expression(input, 0, false)?;
                                     ast.push(AstNode::Return { expression: Some(Box::new(expr)) });
-                                    input.operator_match(";");
+                                    input.operator_match(";")?;
                                 }
                             }
                             _ => {
@@ -83,29 +70,29 @@ pub fn parser_start(input: &mut Tokens, depth: usize) -> Vec<AstNode> {
                 }
             }
             TokenType::Literal(_, _) => {
-                ast.push(process_expression(input, 0, false));
-                input.operator_match(";");
+                ast.push(process_expression(input, 0, false)?);
+                input.operator_match(";")?;
             } TokenType::Identifier(_) => {
-                ast.push(process_expression(input, 0, false));
-                input.operator_match(";");
+                ast.push(process_expression(input, 0, false)?);
+                input.operator_match(";")?;
             } TokenType::Operator(s) => {
                 match s.as_str() {
                     "}" => break,
-                    _ => panic!("Unexpected operator {} on line {}", s, input.peek().line)
+                    _ => return Err(ParseError::UnexpectedOperator { operator: s.clone(), line: input.peek().line })
                 }
             }
             _ => { input.next(); }
         }
     }
 
-    ast
+    Ok(ast)
 }
 
 
-fn get_identifier(token: Token) -> String {
+fn get_identifier(token: Token) -> ParseResult<String> {
     match token.token_type {
-        TokenType::Identifier(ref s) => s.to_string(),
-        _ => panic!("Expected identifier on line {}", token.line)
+        TokenType::Identifier(ref s) => Ok(s.to_string()),
+        _ => Err(ParseError::ExpectedIdentifier(token.line))
     }
 }
 
@@ -120,83 +107,107 @@ fn parse_pointer_prefix(input: &mut Tokens, base_type: Type) -> Type {
 }
 
 
-fn parse_array_suffix(input: &mut Tokens, base_type: Type) -> Type {
-    let mut current_type = base_type;
+fn parse_array_suffix(input: &mut Tokens, mut base_type: Type) -> ParseResult<Type> {
     while input.peek().token_type.eq(&TokenType::Operator("[".to_string())) {
         input.next();
         let size = if input.peek().token_type.eq(&TokenType::Operator("]".to_string())) {
             None
         } else {
-            Some(input.next().token_type.value().to_string())
+            let next = input.peek();
+            match &next.token_type {
+                TokenType::Literal(_, t) if t == "number" => Some(input.next().token_type.value().to_string()),
+                TokenType::Identifier(_) => Some(input.next().token_type.value().to_string()),
+                _ => return Err(ParseError::UnexpectedToken {
+                    expected: "number or identifier".to_string(),
+                    found: next.token_type.value().to_string(),
+                    line: next.line
+                })
+            }
         };
-        input.operator_match("]");
-        current_type = Type::Array(Box::new(current_type), size);
+        input.operator_match("]")?;
+        base_type = Type::Array(Box::new(base_type), size);
     }
-    current_type
+
+    Ok(base_type)
 }
 
 
-fn expect_comma_or_semicolon(input: &mut Tokens) -> bool {
-    match input.next().token_type {
-        TokenType::Operator(ref s) if s == "," => true,
-        TokenType::Operator(ref s) if s == ";" => false,
-        _ => panic!("Expected ',' or ';' on line {}", input.peek().line)
-    }
-}
-
-
-fn parse_comma_separated_expressions(input: &mut Tokens, terminator: &str) -> Vec<AstNode> {
+fn parse_comma_separated_expressions(input: &mut Tokens) -> ParseResult<Vec<AstNode>> {
     let mut items = Vec::new();
-    while input.peek().token_type.ne(&TokenType::Operator(terminator.to_string())) {
+    while input.peek().token_type.ne(&TokenType::Operator(")".to_string())) {
         if input.peek().token_type.eq(&TokenType::Operator(",".to_string())) {
             input.next();
         }
-        items.push(process_expression(input, 0, false));
+        items.push(process_expression(input, 0, false)?);
     }
-    items
+    Ok(items)
 }
 
 
-fn process_body(input: &mut Tokens, depth: usize) -> Vec<AstNode> {
-    input.operator_match("{");
-    let body = parser_start(input, depth + 1);
-    input.operator_match("}");
+fn parse_array_initializer(input: &mut Tokens) -> ParseResult<AstNode> {
+    input.operator_match("{")?;
+    let mut items: Vec<AstNode> = Vec::new();
 
-    body
+    while input.peek().token_type.ne(&TokenType::Operator("}".to_string())) {
+        if input.peek().token_type.eq(&TokenType::Operator(",".to_string())) {
+            input.next();
+            // allow trailing comma before closing brace
+            if input.peek().token_type.eq(&TokenType::Operator("}".to_string())) {
+                break;
+            }
+        }
+        items.push(process_expression(input, 0, false)?);
+    }
+
+    input.operator_match("}")?;
+    Ok(AstNode::ArrayInitializer { items })
 }
 
 
-fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> AstNode {
+fn process_body(input: &mut Tokens, depth: usize) -> ParseResult<Vec<AstNode>> {
+    input.operator_match("{")?;
+    let body = parser_start(input, depth + 1)?;
+    input.operator_match("}")?;
+
+    Ok(body)
+}
+
+
+fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> ParseResult<AstNode> {
     let line = input.peek().line;
 
     let mut lhs = match input.next().token_type {
         TokenType::Literal(s, t) => AstNode::Literal { value: s, data_type: t },
         TokenType::Identifier(s) => {
             if input.peek().token_type == TokenType::Operator("(".to_string()) {
-                process_function_call(input, s)
+                process_function_call(input, s)?
             } else if input.peek().token_type == TokenType::Operator("[".to_string()) {
-                process_array_access(input, s)
+                process_array_access(input, s)?
             } else {
                 AstNode::Literal { value: s, data_type: "identifier".to_string() }
             }
         }
         TokenType::Operator(ref s) if s == "(" => { 
-            let lhs = process_expression(input, 0, comparison);
+            let lhs = process_expression(input, 0, comparison)?;
             if !input.next().token_type.eq(&TokenType::Operator(")".to_string())) {
-                panic!("Expected ')' on line {}", line)
+                return Err(ParseError::ExpectedClosingParen(line));
             };
             lhs
         },
         TokenType::Operator(ref s) if s == "*" => {
-            let operand = process_expression(input, 5, comparison);
-            AstNode::UnaryOperation { operand: Box::new(operand), operator: "*".to_string() }
+            let operand = process_expression(input, 5, comparison)?;
+            AstNode::Dereference { operand: Box::new(operand) }
         },
         TokenType::Operator(ref s) if s == "&" => {
-            let operand = process_expression(input, 5, comparison);
-            AstNode::UnaryOperation { operand: Box::new(operand), operator: "&".to_string() }
+            let operand = process_expression(input, 5, comparison)?;
+            AstNode::Reference { operand: Box::new(operand) }
         },
         TokenType::Keyword(ref s) if s == "true" || s == "false" => AstNode::Literal { value: s.clone(), data_type: "bool".to_string() },
-        _ => panic!("Unexpected token on line {}, found {}", input.peek().line, input.peek().token_type.value())
+        _ => return Err(ParseError::UnexpectedToken { 
+            expected: "expression".to_string(), 
+            found: input.peek().token_type.value().to_string(), 
+            line: input.peek().line 
+        })
     };
 
     loop {
@@ -204,12 +215,16 @@ fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> 
             TokenType::EOF => break,
             TokenType::Operator(s) if s == ")" || s == ";" => break,
             TokenType::Operator(s) => s.clone(),
-            _ => panic!("Unexpected token on line {}, found {}", input.peek().line, input.peek().token_type.value())
+            _ => return Err(ParseError::UnexpectedToken { 
+                expected: "operator".to_string(), 
+                found: input.peek().token_type.value().to_string(), 
+                line: input.peek().line 
+            })
         };
 
         if operator == "++" || operator == "--" {
             input.next();
-            return AstNode::UnaryOperation{ operand: Box::new(lhs), operator };
+            return Ok(AstNode::UnaryOperation{ operand: Box::new(lhs), operator });
         } else if operator == "&&" || operator == "||" {
             comparison = false;
         }
@@ -219,14 +234,14 @@ fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> 
             break;
         } else if r_power == 2 {
             if comparison {
-                panic!("Chained comparisons are not allowed on line {}", input.peek().line);
+                return Err(ParseError::ChainedComparison(input.peek().line));
             }
 
             comparison = true;
         }
 
         input.next();
-        let rhs = process_expression(input, r_power, comparison);
+        let rhs = process_expression(input, r_power, comparison)?;
 
         lhs = AstNode::BinaryOperation {
             left: Box::new(lhs),
@@ -235,17 +250,17 @@ fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> 
         }
     }
 
-    lhs
+    Ok(lhs)
 }
 
 
-fn process_array_access(input: &mut Tokens, identifier: String) -> AstNode {
+fn process_array_access(input: &mut Tokens, identifier: String) -> ParseResult<AstNode> {
     let mut array = AstNode::Literal { value: identifier, data_type: "identifier".to_string() };
     
     while input.peek().token_type.eq(&TokenType::Operator("[".to_string())) {
         input.next();
-        let index = process_expression(input, 0, false);
-        input.operator_match("]");
+        let index = process_expression(input, 0, false)?;
+        input.operator_match("]")?;
         
         array = AstNode::ArrayAccess {
             array: Box::new(array),
@@ -253,42 +268,42 @@ fn process_array_access(input: &mut Tokens, identifier: String) -> AstNode {
         };
     }
     
-    array
+    Ok(array)
 }
 
 
-fn process_function_call(input: &mut Tokens, identifier: String) -> AstNode {
-    input.operator_match("(");
-    let arguments = parse_comma_separated_expressions(input, ")");
-    input.next();
+fn process_function_call(input: &mut Tokens, identifier: String) -> ParseResult<AstNode> {
+    input.operator_match("(")?;
+    let arguments = parse_comma_separated_expressions(input)?;
+    input.operator_match(")")?;
 
-    AstNode::FunctionCall {
+    Ok(AstNode::FunctionCall {
         identifier,
         arguments,
-    }
+    })
 }
 
 
-fn process_printf(input: &mut Tokens) -> AstNode {
-    input.operator_match("(");
+fn process_printf(input: &mut Tokens) -> ParseResult<AstNode> {
+    input.operator_match("(")?;
 
     let format_string = match input.next().token_type {
         TokenType::Literal(s, t) if t == "string" => s,
-        _ => panic!("Expected format string literal in printf on line {}", input.peek().line)
+        _ => return Err(ParseError::ExpectedFormatString(input.peek().line))
     };
 
-    let arguments = parse_comma_separated_expressions(input, ")");
-    input.next();
-    input.operator_match(";");
+    let arguments = parse_comma_separated_expressions(input)?;
+    input.operator_match(")")?;
+    input.operator_match(";")?;
 
-    AstNode::Printf {
+    Ok(AstNode::Printf {
         format_string,
         arguments,
-    }
+    })
 }
 
 
-fn process_data_type(input: &mut Tokens) -> Type {
+fn process_data_type(input: &mut Tokens) -> ParseResult<Type> {
     let mut var_type;
     let mut sign = Option::<String>::None;
 
@@ -298,10 +313,7 @@ fn process_data_type(input: &mut Tokens) -> Type {
     }
     
     let ttype = input.next();
-    if ttype.token_type.eq(&TokenType::Keyword("struct".to_string())) {
-        let struct_name = get_identifier(input.next());
-        var_type = Type::Struct(struct_name);
-    } else if ttype.token_type.eq(&TokenType::Keyword("long".to_string())) {
+    if ttype.token_type.eq(&TokenType::Keyword("long".to_string())) {
         if input.peek().token_type.eq(&TokenType::Keyword("long".to_string())) {
             var_type = Type::LongLong;
             input.next();
@@ -321,52 +333,55 @@ fn process_data_type(input: &mut Tokens) -> Type {
                     _ => {}
                 }
             }
-            _ => panic!("Only integer types can be signed or unsigned on line {}", input.peek().line)
+            _ => return Err(ParseError::InvalidSignedType(input.peek().line))
         }
     }
 
-    var_type
+    Ok(var_type)
 }
 
 
-fn process_declaration(input: &mut Tokens, depth: usize) -> Vec<AstNode> {
-    let mut var_type = process_data_type(input);
+fn process_declaration(input: &mut Tokens, depth: usize) -> ParseResult<Vec<AstNode>> {
+    let var_type = process_data_type(input)?;
     
-    let is_pointer_return = input.peek().token_type.eq(&TokenType::Operator("*".to_string()));
-    if is_pointer_return && input.tokens.len() >= 2 {
-        let peek_ahead = &input.tokens[input.tokens.len() - 2].token_type;
-        if let TokenType::Identifier(_) = peek_ahead {
-            input.next();
-            var_type = Type::Pointer(Box::new(var_type));
-        }
+    let mut i = input.tokens.len() -1;
+    while input.tokens[i].token_type.eq(&TokenType::Operator("*".to_string())) {
+        i -= 1;
     }
 
-    if let [.., second_last, _last] = input.tokens.as_slice() {
-        if second_last.token_type == TokenType::Operator("(".to_string()) {
-            vec![process_fn_declaration(input, var_type, depth)]
-        } else {
-            match var_type {
-                Type::Void => panic!("Void variables are not allowed on line {}", input.peek().line),
-                _ => process_var_declaration(input, var_type)
-            }
-        }
+    if input.tokens[i - 1].token_type == TokenType::Operator("(".to_string()) {
+        Ok(vec![process_fn_declaration(input, var_type, depth)?])
     } else {
-        panic!("Unexpected end of tokens while processing declaration on line {}", input.peek().line);
+        match var_type {
+            Type::Void => Err(ParseError::VoidVariable(input.peek().line)),
+            _ => process_var_declaration(input, var_type)
+        }
     }
 }
 
 
-fn process_var_declaration(input: &mut Tokens, var_type: Type) -> Vec<AstNode> {
+fn process_var_declaration(input: &mut Tokens, var_type: Type) -> ParseResult<Vec<AstNode>> {
     let mut declarations = Vec::new();
 
     loop {
         let mut current_type = parse_pointer_prefix(input, var_type.clone());
-        let identifier = get_identifier(input.next());
-        current_type = parse_array_suffix(input, current_type);
+        let identifier = get_identifier(input.next())?;
+        current_type = parse_array_suffix(input, current_type)?;
 
         let value = if input.peek().token_type.eq(&TokenType::Operator("=".to_string())) {
             input.next();
-            Some(Box::new(process_expression(input, 0, false)))
+            if input.peek().token_type.eq(&TokenType::Operator("{".to_string())) {
+                if !matches!(current_type, Type::Array(_, _)) {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "array type for initializer".to_string(),
+                        found: "{".to_string(),
+                        line: input.peek().line,
+                    });
+                }
+                Some(Box::new(parse_array_initializer(input)?))
+            } else {
+                Some(Box::new(process_expression(input, 0, false)?))
+            }
         } else {
             None
         };
@@ -377,40 +392,51 @@ fn process_var_declaration(input: &mut Tokens, var_type: Type) -> Vec<AstNode> {
             value,
         });
 
-        if !expect_comma_or_semicolon(input) {
-            break;
-        }
+        let token = input.next();
+        match token.token_type {
+            TokenType::Operator(ref s) if s == "," => {},
+            TokenType::Operator(ref s) if s == ";" => break,
+            _ => return Err(ParseError::ExpectedCommaOrSemicolon(token.line))
+        };
     }
 
-    declarations
+    Ok(declarations)
 }
 
 
-fn process_fn_declaration(input: &mut Tokens, return_type: Type, depth: usize) -> AstNode {
+fn process_fn_declaration(input: &mut Tokens, return_type: Type, depth: usize) -> ParseResult<AstNode> {
     let return_type = parse_pointer_prefix(input, return_type);
-    let identifier = get_identifier(input.next());
+    let identifier_token = input.next();
+    let identifier = get_identifier(identifier_token.clone())?;
+    
+    if depth > 0 {
+        return Err(ParseError::NestedFunctionDeclaration { 
+            identifier: identifier.clone(), 
+            line: identifier_token.line 
+        });
+    }
 
-    input.operator_match("(");
+    input.operator_match("(")?;
 
     let mut parameters: Vec<(Type, String)> = Vec::new();
     while input.peek().token_type.ne(&TokenType::Operator(")".to_string())) {
-        let base_type = process_data_type(input);
+        let base_type = process_data_type(input)?;
         let mut param_type = parse_pointer_prefix(input, base_type);
 
         if param_type == Type::Void {
             if !parameters.is_empty() || !input.peek().token_type.eq(&TokenType::Operator(")".to_string())) {
-                panic!("Void type can only be used for single 'void' parameter on line {}", input.peek().line);
+                return Err(ParseError::VoidParameterError(input.peek().line));
             }
             
             parameters.push((param_type, String::new()));
             break;
         }
 
-        let param_identifier = get_identifier(input.next());
-        param_type = parse_array_suffix(input, param_type);
+        let param_identifier = get_identifier(input.next())?;
+        param_type = parse_array_suffix(input, param_type)?;
 
         if input.peek().token_type.ne(&TokenType::Operator(")".to_string())) {
-            input.operator_match(",");
+            input.operator_match(",")?;
         }
 
         parameters.push((param_type, param_identifier));
@@ -421,92 +447,95 @@ fn process_fn_declaration(input: &mut Tokens, return_type: Type, depth: usize) -
     let tok = input.peek();
     match tok.token_type {
         TokenType::Operator(ref s) if s == "{" => {
-            AstNode::FnDefinition {
+            Ok(AstNode::FnDefinition {
                 return_type,
                 identifier,
                 parameters,
-                body: process_body(input, depth + 1),
-            }
+                body: process_body(input, depth + 1)?,
+            })
         }
         TokenType::Operator(ref s) if s == ";" => {
             input.next();
 
-            AstNode::FnDeclaration {
+            Ok(AstNode::FnDeclaration {
                 return_type,
                 identifier,
                 parameters,
-            }
+            })
         }
-        _ => panic!("Expected '{{' or ';' after function declaration on line {}, but found {}", tok.line, tok.token_type.value())
+        _ => Err(ParseError::ExpectedBraceOrSemicolon { 
+            found: tok.token_type.value().to_string(), 
+            line: tok.line 
+        })
     }
 }
 
 
-fn process_if(input: &mut Tokens, depth: usize, is_else: bool) -> AstNode {
-    input.operator_match("(");
+fn process_if(input: &mut Tokens, depth: usize, is_else: bool) -> ParseResult<AstNode> {
+    input.operator_match("(")?;
 
     if is_else {
-        let condition = Some(Box::new(process_expression(input, 0, false)));
+        let condition = Some(Box::new(process_expression(input, 0, false)?));
 
-        input.operator_match(")");
+        input.operator_match(")")?;
 
-        return AstNode::ElseStatement {
+        return Ok(AstNode::ElseStatement {
             condition,
-            body: process_body(input, depth),
-            else_branch: process_else(input, depth),
-        }
+            body: process_body(input, depth)?,
+            else_branch: process_else(input, depth)?,
+        });
     }
 
-    let condition = Box::new(process_expression(input, 0, false));
+    let condition = Box::new(process_expression(input, 0, false)?);
 
-    input.operator_match(")");
+    input.operator_match(")")?;
 
-    AstNode::IfStatement {
+    Ok(AstNode::IfStatement {
         condition,
-        body: process_body(input, depth),
-        else_branch: process_else(input, depth),
-    }
+        body: process_body(input, depth)?,
+        else_branch: process_else(input, depth)?,
+    })
 }
 
 
-fn process_else(input: &mut Tokens, depth: usize) -> Option<Box<AstNode>> {
+fn process_else(input: &mut Tokens, depth: usize) -> ParseResult<Option<Box<AstNode>>> {
     if input.type_match(&TokenType::Keyword("else".to_string())) {
         if input.type_match(&TokenType::Keyword("if".to_string())) {
-            Some(Box::new(process_if(input, depth, true)))
+            Ok(Some(Box::new(process_if(input, depth, true)?)))
         } else {
-            let else_body = process_body(input, depth);
+            let else_body = process_body(input, depth)?;
 
-            Some(Box::new(AstNode::ElseStatement {
+            Ok(Some(Box::new(AstNode::ElseStatement {
                 condition: None,
                 body: else_body,
                 else_branch: None,
-            }))
+            })))
         }
     } else {
-        None
+        Ok(None)
     }
 }
 
 
-fn process_for(input: &mut Tokens, depth: usize) -> AstNode {
+fn process_for(input: &mut Tokens, depth: usize) -> ParseResult<AstNode> {
     let mut declarations: Option<Vec<AstNode>>;
     let condition: Option<Box<AstNode>>;
     let mut increments: Option<Vec<AstNode>>;
 
-    input.operator_match("(");
+    input.operator_match("(")?;
 
     if input.peek().token_type.eq(&TokenType::Operator(";".to_string())) {
         declarations = None;
         input.next();
     } else {
         if !matches!(input.peek().token_type, TokenType::Identifier(_)) {
-            let var_type = process_data_type(input);
-            declarations = Some(process_var_declaration(input, var_type));
+            let var_type = process_data_type(input)?;
+            declarations = Some(process_var_declaration(input, var_type)?);
         } else {
             declarations = Some(Vec::new());
             loop {
                 if let Some(ref mut vec) = declarations {
-                    vec.push(process_expression(input, 0, false));
+                    vec.push(process_expression(input, 0, false)?);
                 }
 
                 match input.peek().token_type {
@@ -515,7 +544,10 @@ fn process_for(input: &mut Tokens, depth: usize) -> AstNode {
                         input.next();
                         break;
                     }
-                    _ => panic!("Expected ',' or ';' after for loop declaration but found {} on line {}", input.peek().token_type.value(), input.peek().line)
+                    _ => return Err(ParseError::ExpectedCommaOrSemicolonInFor { 
+                        found: input.peek().token_type.value().to_string(), 
+                        line: input.peek().line 
+                    })
                 }
             }
         }
@@ -525,8 +557,8 @@ fn process_for(input: &mut Tokens, depth: usize) -> AstNode {
         condition = None;
         input.next();
     } else {
-        condition = Some(Box::new(process_expression(input, 0, false)));
-        input.operator_match(";");
+        condition = Some(Box::new(process_expression(input, 0, false)?));
+        input.operator_match(";")?;
     }
 
     if input.peek().token_type.ne(&TokenType::Operator(")".to_string())) {
@@ -534,14 +566,17 @@ fn process_for(input: &mut Tokens, depth: usize) -> AstNode {
 
         while input.peek().token_type.ne(&TokenType::Operator(")".to_string())) {
             if let Some(ref mut vec) = increments {
-                vec.push(process_expression(input, 0, false));
+                vec.push(process_expression(input, 0, false)?);
             }
 
             let token = input.peek();
             match token.token_type {
                 TokenType::Operator(ref s) if s == "," => { input.next(); }
                 TokenType::Operator(ref s) if s == ")" => {}
-                _ => panic!("Expected ',' or ')' after increment but found {} on line {}", token.token_type.value(), token.line)
+                _ => return Err(ParseError::ExpectedCommaOrClosingParen { 
+                    found: token.token_type.value().to_string(), 
+                    line: token.line 
+                })
             }
         }
     } else {
@@ -550,39 +585,39 @@ fn process_for(input: &mut Tokens, depth: usize) -> AstNode {
 
     input.next();
 
-    AstNode::ForStatement {
+    Ok(AstNode::ForStatement {
         declarations,
         condition,
         increments,
-        body: process_body(input, depth + 1),
-    }
+        body: process_body(input, depth + 1)?,
+    })
 }
 
 
-fn process_while(input: &mut Tokens, depth: usize) -> AstNode {
-    input.operator_peek("(");
+fn process_while(input: &mut Tokens, depth: usize) -> ParseResult<AstNode> {
+    input.operator_peek("(")?;
 
-    AstNode::WhileStatement {
-        condition: Box::new(process_expression(input, 0, false)),
-        body: process_body(input, depth),
-    }
+    Ok(AstNode::WhileStatement {
+        condition: Box::new(process_expression(input, 0, false)?),
+        body: process_body(input, depth)?,
+    })
 }
 
 
-fn process_switch(input: &mut Tokens, depth: usize) -> AstNode {
-    input.operator_match("(");
+fn process_switch(input: &mut Tokens, depth: usize) -> ParseResult<AstNode> {
+    input.operator_match("(")?;
 
-    let identifier = get_identifier(input.next());
+    let identifier = Box::new(process_expression(input, 0, false)?);
     
-    input.operator_match(")");
-    input.operator_match("{");
+    input.operator_match(")")?;
+    input.operator_match("{")?;
 
     let mut case_identifier = String::new();
     let mut cases = Vec::new();
     let mut default = false;
     loop {
         if default {
-            panic!("Default case must be the last case in switch on line {}", input.peek().line);
+            return Err(ParseError::DefaultCaseNotLast(input.peek().line));
         }
 
         if input.type_match(&TokenType::Keyword("default".to_string())) {
@@ -590,23 +625,29 @@ fn process_switch(input: &mut Tokens, depth: usize) -> AstNode {
             default = true;
         } else if !input.type_match(&TokenType::Keyword("case".to_string())) {
             let found = input.peek();
-            panic!("Expected 'case' in switch statement on line {} but found {}", found.line, found.token_type.value());
+            return Err(ParseError::ExpectedCase { 
+                found: found.token_type.value().to_string(), 
+                line: found.line 
+            });
         }
 
         if !default {
             let next = input.peek();
             if !matches!(next.token_type, TokenType::Identifier(_) | TokenType::Literal(_, _)) {
-                panic!("Expected case identifier on line {}, but found {}", next.line, next.token_type.value());
+                return Err(ParseError::ExpectedCaseIdentifier { 
+                    found: next.token_type.value().to_string(), 
+                    line: next.line 
+                });
             }
 
             case_identifier = input.next().token_type.value().to_string();
         }
 
-        input.operator_match(":");
+        input.operator_match(":")?;
 
-        let body: Vec<AstNode> = parser_start(input, depth + 1);
+        let body: Vec<AstNode> = parser_start(input, depth + 1)?;
         if body.is_empty() {
-            panic!("Switch must have at least one case on line {}", input.peek().line);
+            return Err(ParseError::EmptySwitch(input.peek().line));
         }
 
         cases.push(AstNode::Case {
@@ -620,90 +661,22 @@ fn process_switch(input: &mut Tokens, depth: usize) -> AstNode {
         }
     }
 
-    AstNode::Switch {
+    Ok(AstNode::Switch {
         identifier,
         cases,
-    }
+    })
 }
 
 
-fn process_struct(input: &mut Tokens) -> AstNode {
-    let identifier = get_identifier(input.next());
-    let members;
-    let mut variables = Vec::new();
-
-    let next = input.next();
-    match next.token_type {
-        TokenType::Operator(ref s) if s == "{"=> {
-            members = process_struct_members(input);
-
-            if input.peek().token_type.ne(&TokenType::Operator(";".to_string())) {
-                loop {
-                    match input.next().token_type {
-                        TokenType::Identifier(s) => variables.push(s),
-                        _ => panic!("Expected identifier or ';' in struct variable list on line {}", input.peek().line)
-                    }
-
-                    match input.next().token_type {
-                        TokenType::Operator(ref s) if s == "," => {}
-                        TokenType::Operator(ref s) if s == ";" => break,
-                        _ => panic!("Expected ',' or ';' in struct variable list on line {}", input.peek().line)
-                    }
-                }
-            } else {
-                input.next();
-            }
-        }
-        TokenType::Identifier(ref s) => {
-            input.operator_match(";");
-            return AstNode::StructDeclaration { struct_name: identifier, identifier: s.clone() };
-        }
-        _ => panic!("Unexpected token on line {}", next.line)
-    }
-
-    AstNode::Struct {
-        identifier,
-        members,
-        variables
-    }
+fn process_struct(_input: &mut Tokens) -> ParseResult<AstNode> {
+    Err(ParseError::ExpectedIdentifierOrSemicolon(1))
 }
 
 
-fn process_struct_members(input: &mut Tokens) -> Vec<AstNode> {
-    let mut members = Vec::new();
+fn process_enum(input: &mut Tokens) -> ParseResult<AstNode> {
+    let identifier = get_identifier(input.next())?;
 
-    loop {
-        if input.peek().token_type.eq(&TokenType::Operator("}".to_string())) {
-            input.next();
-            break;
-        } else if input.peek().token_type.eq(&TokenType::EOF) {
-            panic!("Unexpected end of file while parsing struct members on line {}", input.peek().line);
-        }
-
-        let mut var_type = process_data_type(input);
-        
-        if input.peek().token_type.eq(&TokenType::Operator("*".to_string())) {
-            input.next();
-            var_type = Type::Pointer(Box::new(var_type));
-        }
-        
-        members.push(AstNode::VarDeclaration {
-            var_type,
-            identifier: get_identifier(input.next()),
-            value: None,
-        });
-
-        input.operator_match(";");
-    }
-
-    members
-}
-
-
-fn process_enum(input: &mut Tokens) -> AstNode {
-    let identifier = get_identifier(input.next());
-
-    input.operator_match("{");
+    input.operator_match("{")?;
 
     let mut variants = Vec::new();
     loop {
@@ -711,19 +684,39 @@ fn process_enum(input: &mut Tokens) -> AstNode {
             break;
         }
 
-        variants.push(input.next().token_type.value().to_string());
-        input.operator_match(",");
+        let variant_name = input.next().token_type.value().to_string();
+        let variant_value = if input.peek().token_type == TokenType::Operator("=".to_string()) {
+            input.next();
+            match input.next().token_type {
+                TokenType::Literal(s, _) => Some(s),
+                TokenType::Operator(op) if op == "-" => {
+                    match input.next().token_type {
+                        TokenType::Literal(s, _) => Some(format!("-{}", s)),
+                        _ => return Err(ParseError::ExpectedLiteral(input.peek().line))
+                    }
+                }
+                _ => return Err(ParseError::ExpectedLiteral(input.peek().line))
+            }
+        } else {
+            None
+        };
+        
+        variants.push((variant_name, variant_value));
+        input.operator_match(",")?;
     }
 
-    input.operator_match("}");
-    input.operator_match(";");
+    input.operator_match("}")?;
+    input.operator_match(";")?;
 
     if variants.is_empty() {
-        panic!("Enum must have at least one variant on line {}", input.peek().line);
+        return Err(ParseError::EmptyEnum(input.peek().line));
     }
     
-    AstNode::Enum {
+    Ok(AstNode::Enum {
         identifier,
         variants,
-    }
+    })
 }
+
+
+// Struct

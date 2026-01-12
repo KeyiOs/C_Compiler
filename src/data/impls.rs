@@ -1,7 +1,7 @@
 use crate::Token;
 use crate::data::types::Type;
 use crate::data::{ TokenType, Tokens };
-use core::panic;
+use crate::error::{ParseError, ParseResult};
 use std::str::FromStr;
 
 impl Token {
@@ -37,23 +37,31 @@ impl Tokens {
         self.tokens.last().unwrap()
     }
 
-    pub fn operator_match(&mut self, other: &str) -> bool {
+    pub fn operator_match(&mut self, other: &str) -> ParseResult<()> {
         let var = self.next();
 
         if var.token_type.eq(&TokenType::Operator(other.to_string())) {
-            true
+            Ok(())
         } else {
-            panic!("Expected '{}' on line {} but found '{}'", other, var.line, var.token_type.value());
+            Err(ParseError::ExpectedOperator { 
+                expected: other.to_string(), 
+                found: var.token_type.value().to_string(), 
+                line: var.line 
+            })
         }
     }
 
-    pub fn operator_peek(&self, other: &str) -> bool {
+    pub fn operator_peek(&self, other: &str) -> ParseResult<()> {
         let var = self.peek();
 
         if var.token_type.eq(&TokenType::Operator(other.to_string())) {
-            true
+            Ok(())
         } else {
-            panic!("Expected '{}' on line {} but found '{}'", other, var.line, var.token_type.value());
+            Err(ParseError::ExpectedOperator { 
+                expected: other.to_string(), 
+                found: var.token_type.value().to_string(), 
+                line: var.line 
+            })
         }
     }
 

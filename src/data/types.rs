@@ -34,9 +34,13 @@ pub enum AstNode {
         else_branch: Option<Box<AstNode>>,
     },
 
+    Dereference {
+        operand: Box<AstNode>,
+    },
+
     Enum {
         identifier: String,
-        variants: Vec<String>,
+        variants: Vec<(String, Option<String>)>,
     },
 
     FnDeclaration {
@@ -75,6 +79,10 @@ pub enum AstNode {
         arguments: Vec<AstNode>,
     },
 
+    Reference {
+        operand: Box<AstNode>,
+    },
+
     Return {
         expression: Option<Box<AstNode>>,
     },
@@ -91,7 +99,7 @@ pub enum AstNode {
     },
 
     Switch {
-        identifier: String,
+        identifier: Box<AstNode>,
         cases: Vec<AstNode>,
     },
 
@@ -104,6 +112,10 @@ pub enum AstNode {
         var_type: Type,
         identifier: String,
         value: Option<Box<AstNode>>,
+    },
+
+    ArrayInitializer {
+        items: Vec<AstNode>,
     },
 
     WhileStatement {
@@ -164,7 +176,6 @@ pub enum Type {
     LongLong,
     Unsigned(Box<Type>),
     Signed(Box<Type>),
-    Struct(String),
     Pointer(Box<Type>),
     Array(Box<Type>, Option<String>),
 }

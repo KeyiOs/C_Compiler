@@ -1,5 +1,6 @@
 mod data;
 mod logic;
+mod error;
 
 use std::process::Command;
 use data::Token;
@@ -10,7 +11,7 @@ use crate::data::AstNode;
 use crate::data::TokenType;
 use crate::data::Tokens;
 
-const INPUT_CODE: &str = "./examples/test.txt";
+const INPUT_CODE: &str = "./input/test.c";
 
 fn main() {
     let preproces_source = match preproces_source(INPUT_CODE) {
@@ -24,16 +25,22 @@ fn main() {
     let mut tokens = match lexer_start(&preproces_source) {
         Ok(tokens) => Tokens { tokens },
         Err(e) => {
-            println!("\nError: {:?}\n", e);
+            eprintln!("\nLexer Error: {}\n", e);
             return;
         }
     };
     
-    let ast = parser_start(&mut tokens, 0);
+    let ast = match parser_start(&mut tokens, 0) {
+        Ok(ast) => ast,
+        Err(e) => {
+            eprintln!("\nParser Error: {}\n", e);
+            return;
+        }
+    };
 
     /* - DEGUB - */
-    let json = serde_json::to_string_pretty(&ast).unwrap();
-    println!("{}\n\n\n", json);
+    // let json = serde_json::to_string_pretty(&ast).unwrap();
+    // println!("{}\n\n\n", json);
 
     print_ast(&ast);
 }
@@ -63,6 +70,8 @@ const RED: &str = "\x1b[1;31m";
 const RESET: &str = "\x1b[0m";
 
 pub fn print_ast(nodes: &[AstNode]) {
+    println!("\n\n\n---------------------------------------------------------");
+
     fn print_name(name: &str, prefix: &str, last: bool) -> String {
         println!("{}{}{}", CYAN, name, RESET);
         format!("{}{}", prefix, if last { "    " } else { "│   " })
@@ -156,6 +165,14 @@ pub fn print_ast(nodes: &[AstNode]) {
                     inner(val, &new_prefix, true, None);
                 }
             }
+            AstNode::ArrayInitializer { items } => {
+                println!("{}ArrayInitializer{}{}", YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                for (i, item) in items.iter().enumerate() {
+                    let is_last = i == items.len() - 1;
+                    inner(item, &new_prefix, is_last, None);
+                }
+            }
             AstNode::ElseStatement { condition, body, else_branch } => {
                 let new_prefix = print_name("ElseStatement", prefix, last);
 
@@ -178,8 +195,9 @@ pub fn print_ast(nodes: &[AstNode]) {
                 print_body(body, &new_prefix);
             }
             AstNode::Switch { identifier, cases } => {
-                println!("{}Switch({}{}{}){}", CYAN, RED, identifier, CYAN, RESET);
+                println!("{}Switch{}", CYAN, RESET);
                 let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                inner(identifier, &new_prefix, cases.is_empty(), Some("identifier"));
                 for (i, case) in cases.iter().enumerate() {
                     let is_last = i == cases.len() - 1;
                     inner(case, &new_prefix, is_last, None);
@@ -210,9 +228,12 @@ pub fn print_ast(nodes: &[AstNode]) {
             AstNode::Enum { identifier, variants } => {
                 println!("{}Enum({}{}{}){}", CYAN, RED, identifier, CYAN, RESET);
                 let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
-                for (i, variant) in variants.iter().enumerate() {
+                for (i, (variant_name, variant_value)) in variants.iter().enumerate() {
                     let is_last = i == variants.len() - 1;
-                    println!("{}{}{}Variant({}{}{}){}", new_prefix, if is_last { "└─ " } else { "├─ " }, GREEN, RED, variant, GREEN, RESET);
+                    match variant_value {
+                        Some(value) => println!("{}{}{}Variant({}{}{}{}{}){}", new_prefix, if is_last { "└─ " } else { "├─ " }, GREEN, RED, variant_name, MAGENTA, if !value.is_empty() { format!(" {{{}}}", value) } else { String::new() }, GREEN, RESET),
+                        None => println!("{}{}{}Variant({}{}{}){}", new_prefix, if is_last { "└─ " } else { "├─ " }, GREEN, RED, variant_name, GREEN, RESET),
+                    }
                 }
             }
             AstNode::BinaryOperation { left, operator, right } => {
@@ -257,6 +278,16 @@ pub fn print_ast(nodes: &[AstNode]) {
             }
             AstNode::Continue => {
                 println!("{}Continue{}", GREEN, RESET);
+            }
+            AstNode::Dereference { operand } => {
+                println!("{}Dereference (*){}{}", YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                inner(operand, &new_prefix, true, None);
+            }
+            AstNode::Reference { operand } => {
+                println!("{}Reference (&){}{}", YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                inner(operand, &new_prefix, true, None);
             }
         }
     }
