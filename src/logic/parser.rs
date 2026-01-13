@@ -216,6 +216,10 @@ fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> 
                 process_function_call(input, s)?
             } else if input.peek().token_type == TokenType::Operator("[".to_string()) {
                 process_array_access(input, s)?
+            } else if input.peek().token_type == TokenType::Operator(".".to_string()) {
+                process_member_access(input, s, false)?
+            } else if input.peek().token_type == TokenType::Operator("->".to_string()) {
+                process_member_access(input, s, true)?
             } else {
                 AstNode::Literal { value: s, data_type: "identifier".to_string() }
             }
@@ -258,6 +262,24 @@ fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> 
         if operator == "++" || operator == "--" {
             input.next();
             return Ok(AstNode::UnaryOperation{ operand: Box::new(lhs), operator });
+        } else if operator == "." {
+            input.next();
+            let member = get_identifier(input.next())?;
+            lhs = AstNode::MemberAccess {
+                object: Box::new(lhs),
+                member,
+                is_arrow: false,
+            };
+            continue;
+        } else if operator == "->" {
+            input.next();
+            let member = get_identifier(input.next())?;
+            lhs = AstNode::MemberAccess {
+                object: Box::new(lhs),
+                member,
+                is_arrow: true,
+            };
+            continue;
         } else if operator == "&&" || operator == "||" {
             comparison = false;
         }
@@ -302,6 +324,24 @@ fn process_array_access(input: &mut Tokens, identifier: String) -> ParseResult<A
     }
     
     Ok(array)
+}
+
+
+fn process_member_access(input: &mut Tokens, identifier: String, is_arrow: bool) -> ParseResult<AstNode> {
+    let mut object = AstNode::Literal { value: identifier, data_type: "identifier".to_string() };
+    
+    while input.peek().token_type.eq(&TokenType::Operator(if is_arrow { "->" } else { "." }.to_string())) {
+        input.next();
+        let member = get_identifier(input.next())?;
+        
+        object = AstNode::MemberAccess {
+            object: Box::new(object),
+            member,
+            is_arrow,
+        };
+    }
+    
+    Ok(object)
 }
 
 
@@ -850,7 +890,6 @@ fn process_enum(input: &mut Tokens) -> ParseResult<AstNode> {
 }
 
 
-// Struct
 // Typedef ?
 // Union ?
 // Malloc ?

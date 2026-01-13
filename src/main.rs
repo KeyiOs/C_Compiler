@@ -303,6 +303,12 @@ pub fn print_ast(nodes: &[AstNode]) {
                 let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
                 inner(operand, &new_prefix, true, None);
             }
+            AstNode::MemberAccess { object, member, is_arrow } => {
+                println!("{}MemberAccess ({}{}{}){}{}", YELLOW, RED, if *is_arrow { "->" } else { "." }, YELLOW, side_label, RESET);
+                let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+                inner(object, &new_prefix, false, Some("object"));
+                println!("{}{}{}.{}{}{}", new_prefix, "└─ ", GREEN, member, GREEN, RESET);
+            }
         }
     }
 

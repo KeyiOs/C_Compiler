@@ -122,6 +122,12 @@ pub enum AstNode {
         members: Vec<(String, AstNode)>,
     },
 
+    MemberAccess {
+        object: Box<AstNode>,
+        member: String,
+        is_arrow: bool,
+    },
+
     WhileStatement {
         condition: Box<AstNode>,
         body: Vec<AstNode>,
@@ -238,6 +244,7 @@ pub enum DoubleOperator {
     AmpersandEqual,
     CaretEqual,
     PipeEqual,
+    Arrow,
 }
 
 

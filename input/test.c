@@ -17,3 +17,7 @@ struct Person p = {
 };
 
 int x[10] = { 1, 2, 3 };
+
+p.age;
+ptr->height;
+p1.x;

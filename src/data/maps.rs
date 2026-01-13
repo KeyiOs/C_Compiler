@@ -88,6 +88,7 @@ pub static DOUBLE_OPERATOR_MAP: LazyLock<HashMap<&str, DoubleOperator>> = LazyLo
         ("&=", DoubleOperator::AmpersandEqual),
         ("^=", DoubleOperator::CaretEqual),
         ("|=", DoubleOperator::PipeEqual),
+        ("->", DoubleOperator::Arrow),
     ])
 });
 
