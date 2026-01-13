@@ -90,7 +90,7 @@ pub enum AstNode {
     Struct {
         identifier: String,
         members: Vec<AstNode>,
-        variables: Vec<String>,
+        variables: Vec<(Type, String, Option<Box<AstNode>>)>,
     },
 
     StructDeclaration {
@@ -116,6 +116,10 @@ pub enum AstNode {
 
     ArrayInitializer {
         items: Vec<AstNode>,
+    },
+
+    DesignatedInitializer {
+        members: Vec<(String, AstNode)>,
     },
 
     WhileStatement {
@@ -178,6 +182,7 @@ pub enum Type {
     Signed(Box<Type>),
     Pointer(Box<Type>),
     Array(Box<Type>, Option<String>),
+    Struct(String),
 }
 
 

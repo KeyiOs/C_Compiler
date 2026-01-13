@@ -102,6 +102,8 @@ pub enum ParseError {
     ExpectedOperator { expected: String, found: String, line: u16 },
     NestedFunctionDeclaration { identifier: String, line: u16 },
     ReturnOutsideFunction(u16),
+    StructMemberInitializer(u16),
+    DesignatedInitializerOnNonStruct(u16),
 }
 
 impl fmt::Display for ParseError {
@@ -157,6 +159,10 @@ impl fmt::Display for ParseError {
                 write!(f, "Function '{}' cannot be declared inside another function on line {}", identifier, line),
             ParseError::ReturnOutsideFunction(line) => 
                 write!(f, "'return' is not allowed at file scope on line {}", line),
+            ParseError::StructMemberInitializer(line) => 
+                write!(f, "Struct members cannot have initializers on line {}", line),
+            ParseError::DesignatedInitializerOnNonStruct(line) => 
+                write!(f, "Designated initializers can only be used with struct types on line {}", line),
         }
     }
 }
