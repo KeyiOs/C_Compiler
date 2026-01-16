@@ -1,7 +1,64 @@
 use std::str::FromStr;
 
-use crate::{TokenType, data::{AstNode, OperatorPrecedence, Token, Tokens, types::Type}};
+use crate::{Token, TokenType, data::{AstNode, definitions::Type}};
 use crate::error::{ParseError, ParseResult};
+
+
+pub struct Tokens {
+    pub tokens: Vec<Token>,
+}
+
+impl Tokens {
+    #[inline]
+    pub fn next(&mut self) -> Token {
+        self.tokens.pop().unwrap()
+    }
+
+    #[inline]
+    pub fn peek(&self) -> &Token {
+        self.tokens.last().unwrap()
+    }
+
+    pub fn operator_match(&mut self, other: &str) -> ParseResult<()> {
+        let var = self.next();
+
+        if var.token_type.eq(&TokenType::Operator(other.to_string())) {
+            Ok(())
+        } else {
+            Err(ParseError::ExpectedOperator { 
+                expected: other.to_string(), 
+                found: var.token_type.value().to_string(), 
+                line: var.line 
+            })
+        }
+    }
+
+    pub fn operator_peek(&self, other: &str) -> ParseResult<()> {
+        let var = self.peek();
+
+        if var.token_type.eq(&TokenType::Operator(other.to_string())) {
+            Ok(())
+        } else {
+            Err(ParseError::ExpectedOperator { 
+                expected: other.to_string(), 
+                found: var.token_type.value().to_string(), 
+                line: var.line 
+            })
+        }
+    }
+
+    pub fn type_match(&mut self, other: &TokenType) -> bool {
+        let var = self.peek();
+
+        if var.token_type.eq(other) {
+            self.next();
+            true
+        } else {
+            false
+        }
+    }
+}
+
 
 pub fn parser_start(input: &mut Tokens, depth: usize) -> ParseResult<Vec<AstNode>> {
     let mut ast = Vec::new();
@@ -86,6 +143,18 @@ pub fn parser_start(input: &mut Tokens, depth: usize) -> ParseResult<Vec<AstNode
     }
 
     Ok(ast)
+}
+
+
+fn precedence(operator: &str) -> u8 {
+    match operator {
+        "++" | "--" => 5,
+        "*" | "/" | "%" => 4,
+        "+" | "-" => 3,
+        ">" | "<" | ">=" | "<=" | "==" | "!=" => 2,
+        "+=" | "-=" | "*=" | "/=" | "%=" | "=" | "&&" | "||"=> 1,
+        _ => 0,
+    }
 }
 
 
@@ -284,7 +353,7 @@ fn process_expression(input: &mut Tokens, l_power: u8, mut comparison: bool) -> 
             comparison = false;
         }
 
-        let r_power = operator.precedence();
+        let r_power = precedence(&operator);
         if r_power == 0 || l_power >= r_power {
             break;
         } else if r_power == 2 {
@@ -394,7 +463,16 @@ fn process_data_type(input: &mut Tokens) -> ParseResult<Type> {
             var_type = Type::Long;
         }
     } else {
-        var_type = Type::from_str(ttype.token_type.value()).unwrap();
+        match Type::from_str(ttype.token_type.value()) {
+            Ok(t) => var_type = t,
+            Err(_) => {
+                return Err(ParseError::UnexpectedToken {
+                    expected: "data type".to_string(),
+                    found: ttype.token_type.value().to_string(),
+                    line: ttype.line,
+                });
+            }
+        }
     }
 
     if sign.is_some() {
@@ -425,10 +503,7 @@ fn process_declaration(input: &mut Tokens, depth: usize) -> ParseResult<Vec<AstN
     if input.tokens[i - 1].token_type == TokenType::Operator("(".to_string()) {
         Ok(vec![process_fn_declaration(input, var_type, depth)?])
     } else {
-        match var_type {
-            Type::Void => Err(ParseError::VoidVariable(input.peek().line)),
-            _ => process_var_declaration(input, var_type)
-        }
+        process_var_declaration(input, var_type)
     }
 }
 
@@ -461,6 +536,7 @@ fn parse_struct_members(input: &mut Tokens, member_type: Type) -> ParseResult<Ve
 
     Ok(members)
 }
+
 
 fn process_var_declaration(input: &mut Tokens, var_type: Type) -> ParseResult<Vec<AstNode>> {
     let mut declarations = Vec::new();

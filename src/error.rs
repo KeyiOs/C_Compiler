@@ -72,8 +72,8 @@ impl fmt::Display for LexerError {
 }
 
 impl std::error::Error for LexerError {}
-
 pub type LexerResult<T> = Result<T, LexerError>;
+
 
 #[derive(Debug, Clone)]
 pub enum ParseError {
@@ -88,7 +88,6 @@ pub enum ParseError {
     ChainedComparison(u16),
     ExpectedFormatString(u16),
     InvalidSignedType(u16),
-    VoidVariable(u16),
     VoidParameterError(u16),
     ExpectedBraceOrSemicolon { found: String, line: u16 },
     ExpectedCommaOrSemicolonInFor { found: String, line: u16 },
@@ -131,8 +130,6 @@ impl fmt::Display for ParseError {
                 write!(f, "Expected format string literal in printf on line {}", line),
             ParseError::InvalidSignedType(line) => 
                 write!(f, "Only integer types can be signed or unsigned on line {}", line),
-            ParseError::VoidVariable(line) => 
-                write!(f, "Void variables are not allowed on line {}", line),
             ParseError::VoidParameterError(line) => 
                 write!(f, "Void type can only be used for single 'void' parameter on line {}", line),
             ParseError::ExpectedBraceOrSemicolon { found, line } => 
@@ -168,5 +165,54 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
-
 pub type ParseResult<T> = Result<T, ParseError>;
+
+
+#[derive(Debug, Clone)]
+pub enum SemanticError {
+    UndeclaredIdentifier(String),
+    DuplicateIdentifier(String),
+}
+
+impl fmt::Display for SemanticError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SemanticError::UndeclaredIdentifier(name) => {
+                write!(f, "Undeclared identifier: '{}'", name)
+            }
+            SemanticError::DuplicateIdentifier(name) => {
+                write!(f, "Duplicate identifier: '{}'", name)
+            }
+        }
+    }
+}
+
+impl std::error::Error for SemanticError {}
+pub type SemanticResult<T> = Result<T, SemanticError>;
+
+
+#[derive(Debug, Clone)]
+pub enum SymbolError {
+    SymbolAlreadyExists { name: String },
+    SymbolNotFound { name: String },
+    NotAFunction { name: String },
+    NotAVariable { name: String },
+}
+
+impl fmt::Display for SymbolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SymbolError::SymbolAlreadyExists { name } =>
+                write!(f, "Symbol '{}' already exists", name),
+            SymbolError::SymbolNotFound { name } =>
+                write!(f, "Symbol '{}' not found", name),
+            SymbolError::NotAFunction { name } =>
+                write!(f, "Symbol '{}' is not a function", name),
+            SymbolError::NotAVariable { name } =>
+                write!(f, "Symbol '{}' is not a variable", name),
+        }
+    }
+}
+
+impl std::error::Error for SymbolError {}
+pub type SymbolResult<T> = Result<T, SymbolError>;

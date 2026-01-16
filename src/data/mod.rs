@@ -1,14 +1,6 @@
-mod impls;
-pub use impls::OperatorPrecedence;
+pub mod symbol_table;
+pub use symbol_table::SymbolTable;
 
-pub mod maps;
-
-
-pub mod structures;
-pub use structures::Token;
-pub use structures::Tokens;
-
-pub mod types;
-pub use types::TokenType;
-pub use types::Keyword;
-pub use types::AstNode;
+pub mod definitions;
+pub use definitions::TokenType;
+pub use definitions::AstNode;

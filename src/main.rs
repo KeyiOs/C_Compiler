@@ -3,13 +3,10 @@ mod logic;
 mod error;
 
 use std::process::Command;
-use data::Token;
-use logic::lexer_start;
-use logic::parser_start;
+use logic::{Token, Tokens, lexer_start, parser_start, semantic_analyze};
 
 use crate::data::AstNode;
 use crate::data::TokenType;
-use crate::data::Tokens;
 
 const INPUT_CODE: &str = "./input/test.c";
 
@@ -38,11 +35,16 @@ fn main() {
         }
     };
 
-    /* - DEGUB - */
-    // let json = serde_json::to_string_pretty(&ast).unwrap();
-    // println!("{}\n\n\n", json);
+    if let Err(e) = semantic_analyze(&ast) {
+        eprintln!("\nSemantic Error: {}\n", e);
+        return;
+    }
 
-    print_ast(&ast);
+    /* - DEGUB - */
+    let json = serde_json::to_string_pretty(&ast).unwrap();
+    println!("{}\n\n\n", json);
+
+    // print_ast(&ast);
 }
 
 

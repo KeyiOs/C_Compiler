@@ -1,9 +1,24 @@
-use crate::Token;
-use crate::data::maps::{ DOUBLE_OPERATOR_MAP, KEYWORD_MAP, SINGLE_OPERATOR_MAP, TRIPLE_OPERATOR_MAP };
-use crate::data::TokenType;
-use crate::error::{LexerError, LexerResult};
 use std::iter::Peekable;
 use std::str::Chars;
+
+use crate::data::TokenType;
+use crate::data::definitions::{DOUBLE_OPERATOR_MAP, KEYWORD_MAP, SINGLE_OPERATOR_MAP, TRIPLE_OPERATOR_MAP};
+use crate::error::{LexerError, LexerResult};
+
+
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub token_type: TokenType,
+    pub line: u16,
+}
+
+impl Token {
+    #[inline]
+    pub fn new(token_type: TokenType, line: u16) -> Self {
+        Self { token_type, line }
+    }
+}
+
 
 pub fn lexer_start(source: &str) -> LexerResult<Vec<Token>> {
     /**/ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */ /**/
